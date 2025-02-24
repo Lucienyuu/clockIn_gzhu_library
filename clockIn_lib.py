@@ -176,53 +176,61 @@ class clockIn():
         logger.info('step2 正在转到图书馆界面')
         logger.info('标题: ' + self.driver.title)
 
-    def step3(self):
-        logger.info('step3 准备进行图书馆预定座位操作')
-        logger.info('标题: ' + self.driver.title)
+def step3(self):
+    logger.info('step3 准备进行图书馆预定座位操作')
+    logger.info('标题: ' + self.driver.title)
 
-        cookie = self.get_cookie()
+    cookie = self.get_cookie()
 
-        if cookie == '':
-            logger.info('没找到cookie')
+    if cookie == '':
+        logger.info('没找到cookie')
 
-            # 尝试访问
-            self.driver.get("http://libbooking.gzhu.edu.cn/#/ic/home")
+        # 尝试访问
+        self.driver.get("http://libbooking.gzhu.edu.cn/#/ic/home")
 
-            # 计算时间
-            start = datetime.datetime.now()
-            time.sleep(5)
-            end = datetime.datetime.now()
-            logger.info('等待时间: ' + str((end - start).seconds))
+        # 计算时间
+        start = datetime.datetime.now()
+        time.sleep(5)
+        end = datetime.datetime.now()
+        logger.info('等待时间: ' + str((end - start).seconds))
 
-            self.step3()
-            return
+        self.step3()
+        return
 
-        logger.info('primary cookie: ' + cookie)
+    logger.info('primary cookie: ' + cookie)
 
-        # 计算明天的日期，yyyy-MM-dd
-        tomorrow = datetime.date.today() + datetime.timedelta(days=1)
-        tomorrow = tomorrow.strftime('%Y-%m-%d')
+    # 计算明天的日期，yyyy-MM-dd
+    tomorrow = datetime.date.today() + datetime.timedelta(days=1)
+    tomorrow = tomorrow.strftime('%Y-%m-%d')
 
-        # 将下面的值转换成json格式
-        reserve1 = json.loads(self.reserve_lib_seat(cookie, tomorrow, '9:00:00', '12:00:00'))
-        reserve2 = json.loads(self.reserve_lib_seat(cookie, tomorrow, '14:00:00', '18:00:00'))
+    # 将下面的值转换成json格式
+    reserve1 = json.loads(self.reserve_lib_seat(cookie, tomorrow, '10:00:00', '13:00:00'))
+    reserve2 = json.loads(self.reserve_lib_seat(cookie, tomorrow, '13:00:00', '16:00:00'))
+    reserve3 = json.loads(self.reserve_lib_seat(cookie, tomorrow, '16:00:00', '19:00:00'))
+    reserve4 = json.loads(self.reserve_lib_seat(cookie, tomorrow, '19:00:00', '22:00:00'))
 
-        logger.info(reserve1)
-        logger.info(reserve2)
+    logger.info(reserve1)
+    logger.info(reserve2)
+    logger.info(reserve3)
+    logger.info(reserve4)
 
-        message = f'''{tomorrow} 座位101-{self.SEATNO}，上午预定：{'预约成功' if reserve1.get('code') == 0 else '预约失败，设备在该时间段内已被预约'}
-            {tomorrow} 座位101-{self.SEATNO}，下午预定：{'预约成功' if reserve2.get('code') == 0 else '预约失败，设备在该时间段内已被预约'}
-        '''
+    message = f'''{tomorrow} 座位101-{self.SEATNO}，上午预定：{'预约成功' if reserve1.get('code') == 0 else '预约失败，设备在该时间段内已被预约'}
+        {tomorrow} 座位101-{self.SEATNO}，下午预定：{'预约成功' if reserve2.get('code') == 0 else '预约失败，设备在该时间段内已被预约'}
+        {tomorrow} 座位101-{self.SEATNO}，下午预定：{'预约成功' if reserve3.get('code') == 0 else '预约失败，设备在该时间段内已被预约'}
+        {tomorrow} 座位101-{self.SEATNO}，晚上预定：{'预约成功' if reserve4.get('code') == 0 else '预约失败，设备在该时间段内已被预约'}
+    '''
 
-        logger.info(message)
+    logger.info(message)
 
-        # 发送消息
-        self.notify(message)
+    # 发送消息
+    self.notify(message)
 
-        # 发送请求成功，可以结束程序了
-        self.fail = False
-        self.driver.quit()
-        exit(0)
+    # 发送请求成功，可以结束程序了
+    self.fail = False
+    self.driver.quit()
+    exit(0)
+
+    
 
     def reserve_lib_seat(self, cookie, tomorrow, startTime, endTime):
         url = "http://libbooking.gzhu.edu.cn/ic-web/reserve"
