@@ -176,7 +176,7 @@ class clockIn():
         logger.info('step2 正在转到图书馆界面')
         logger.info('标题: ' + self.driver.title)
 
-def step3(self):
+    def step3(self):
     logger.info('step3 准备进行图书馆预定座位操作')
     logger.info('标题: ' + self.driver.title)
 
