@@ -177,27 +177,46 @@ class clockIn():
         logger.info('标题: ' + self.driver.title)
 
     def step3(self):
+        """准备进行图书馆预定座位操作
+        """
         logger.info('step3 准备进行图书馆预定座位操作')
         logger.info('标题: ' + self.driver.title)
 
+        # 确保我们在正确的页面上
+        if "Information Commons" not in self.driver.title:
+            logger.info('当前不在图书馆页面，尝试访问图书馆页面')
+            self.driver.get("http://libbooking.gzhu.edu.cn/#/ic/home")
+            
+            # 等待页面加载
+            try:
+                WebDriverWait(self.driver, 15).until(
+                    EC.presence_of_element_located((By.XPATH, "//div[contains(@class,'home-container')]"))
+                )
+            except Exception:
+                logger.error("等待图书馆页面加载超时")
+        
+        # 确保JS执行完毕，等待一些关键元素
+        time.sleep(5)
+        
+        # 获取cookie
         cookie = self.get_cookie()
 
-        if cookie == '':
-            logger.info('没找到cookie')
+        if not cookie:
+            logger.info('没找到cookie，尝试执行一些页面操作以获取cookie')
+            # 尝试点击页面上的一些元素以触发cookie生成
+            try:
+                self.driver.execute_script("document.body.click()")
+                time.sleep(2)
+                cookie = self.get_cookie()
+            except Exception as e:
+                logger.error(f"尝试触发cookie生成失败: {str(e)}")
 
-            # 尝试访问
-            self.driver.get("http://libbooking.gzhu.edu.cn/#/ic/home")
-
-            # 计算时间
-            start = datetime.datetime.now()
-            time.sleep(5)
-            end = datetime.datetime.now()
-            logger.info('等待时间: ' + str((end - start).seconds))
-
-            self.step3()
+        if not cookie:
+            logger.error('无法获取有效的cookie，打卡失败')
+            self.fail = True
             return
 
-        logger.info('primary cookie: ' + cookie)
+        logger.info('获取到有效cookie: ' + cookie)
 
         # 计算明天的日期，yyyy-MM-dd
         tomorrow = datetime.date.today() + datetime.timedelta(days=1)
@@ -225,6 +244,8 @@ class clockIn():
         exit(0)
 
     def reserve_lib_seat(self, cookie, tomorrow, startTime, endTime):
+        """预约图书馆座位
+        """
         url = "http://libbooking.gzhu.edu.cn/ic-web/reserve"
 
         payload = json.dumps({
@@ -254,23 +275,41 @@ class clockIn():
         return response.text
 
     def calc_dev_no(self, no):
+        """计算设备编号
+        """
         return 101266684 + no - 1
 
     def decalc_devno(self, no):
+        """反向计算设备编号
+        """
         return no - 101266684 + 1
 
     def get_cookie(self):
-        # 获取Cookie字符串
-
-        ans = self.driver.get_cookies()
-        logger.info('cookies' + str(ans))
-
-        if len(ans) != 0:
-            logger.info(ans[0])
-            logger.info(ans[0].get('name'))
-            return ans[0].get('name') + "=" + ans[0].get('value')
-
-        return ''
+        """获取所需的cookie
+        """
+        try:
+            # 确保页面完全加载
+            time.sleep(3)
+            
+            # 直接构建所需的cookie字符串
+            cookies = self.driver.get_cookies()
+            logger.info(f'获取到 {len(cookies)} 个cookies')
+            
+            # 尝试查找名为 SESSION 的 cookie（通常是会话cookie）
+            session_cookie = next((c for c in cookies if 'SESSION' in c.get('name', '')), None)
+            if session_cookie:
+                return f"{session_cookie['name']}={session_cookie['value']}"
+            
+            # 如果找不到SESSION cookie，则合并所有cookie
+            if cookies:
+                cookie_str = '; '.join([f"{c['name']}={c['value']}" for c in cookies])
+                return cookie_str
+            
+            return ''
+        except Exception as e:
+            logger.error(f"获取cookie时出错: {str(e)}")
+            logger.error(traceback.format_exc())
+            return ''
 
     def notify(self, content):
         """图书馆预约信息
