@@ -175,6 +175,9 @@ class clockIn():
 
         logger.info('step2 正在转到图书馆界面')
         logger.info('标题: ' + self.driver.title)
+        
+        # 等待额外的时间，确保完全加载并建立会话
+        time.sleep(3)
 
     def step3(self):
         """准备进行图书馆预定座位操作
@@ -203,16 +206,21 @@ class clockIn():
 
         if not cookie:
             logger.info('没找到cookie，尝试执行一些页面操作以获取cookie')
-            # 尝试点击页面上的一些元素以触发cookie生成
             try:
-                self.driver.execute_script("document.body.click()")
-                time.sleep(2)
+                # 尝试刷新页面
+                self.driver.refresh()
+                time.sleep(5)
+                
+                # 尝试访问主页
+                self.driver.get("http://libbooking.gzhu.edu.cn/#/ic/home")
+                time.sleep(3)
+                
                 cookie = self.get_cookie()
             except Exception as e:
-                logger.error(f"尝试触发cookie生成失败: {str(e)}")
+                logger.error(f"尝试重新获取cookie失败: {str(e)}")
 
         if not cookie:
-            logger.error('无法获取有效的cookie，打卡失败')
+            logger.error('无法获取有效的cookie，预约失败')
             self.fail = True
             return
 
@@ -229,8 +237,8 @@ class clockIn():
         logger.info(reserve1)
         logger.info(reserve2)
 
-        message = f'''{tomorrow} 座位101-{self.SEATNO}，上午预定：{'预约成功' if reserve1.get('code') == 0 else '预约失败，设备在该时间段内已被预约'}
-            {tomorrow} 座位101-{self.SEATNO}，下午预定：{'预约成功' if reserve2.get('code') == 0 else '预约失败，设备在该时间段内已被预约'}
+        message = f'''{tomorrow} 座位101-{self.SEATNO}，上午预定：{'预约成功' if reserve1.get('code') == 0 else '预约失败，' + reserve1.get('message', '未知原因')}
+            {tomorrow} 座位101-{self.SEATNO}，下午预定：{'预约成功' if reserve2.get('code') == 0 else '预约失败，' + reserve2.get('message', '未知原因')}
         '''
 
         logger.info(message)
@@ -246,15 +254,36 @@ class clockIn():
     def reserve_lib_seat(self, cookie, tomorrow, startTime, endTime):
         """预约图书馆座位
         """
+        # 首先获取用户账号信息
+        user_info_url = "http://libbooking.gzhu.edu.cn/ic-web/account/getMembers"
+        headers = {
+            'Cookie': cookie,
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.41',
+        }
+        
+        try:
+            user_response = requests.get(user_info_url, headers=headers)
+            user_data = json.loads(user_response.text)
+            logger.info(f"用户信息: {user_data}")
+            
+            if user_data.get('code') == 0 and user_data.get('data'):
+                user_account = user_data['data'][0]['appAccNo']
+                logger.info(f"获取到用户账号: {user_account}")
+            else:
+                logger.error(f"获取用户信息失败: {user_data}")
+                user_account = 101598216  # 使用默认值，但很可能不正确
+        except Exception as e:
+            logger.error(f"获取用户信息出错: {str(e)}")
+            user_account = 101598216  # 默认值
+        
+        # 然后进行预约
         url = "http://libbooking.gzhu.edu.cn/ic-web/reserve"
-
+        
         payload = json.dumps({
             "sysKind": 8,
-            "appAccNo": 101598216,
+            "appAccNo": user_account,
             "memberKind": 1,
-            "resvMember": [
-                101598216
-            ],
+            "resvMember": [user_account],
             "resvBeginTime": f"{tomorrow} {startTime}",
             "resvEndTime": f"{tomorrow} {endTime}",
             "testName": "",
@@ -265,13 +294,10 @@ class clockIn():
             ],
             "memo": ""
         })
-        headers = {
-            'Cookie': cookie,
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.41',
-            'Content-Type': 'application/json'
-        }
+        
+        headers['Content-Type'] = 'application/json'
         response = requests.request("POST", url, headers=headers, data=payload)
-
+        
         return response.text
 
     def calc_dev_no(self, no):
@@ -295,17 +321,18 @@ class clockIn():
             cookies = self.driver.get_cookies()
             logger.info(f'获取到 {len(cookies)} 个cookies')
             
-            # 尝试查找名为 SESSION 的 cookie（通常是会话cookie）
-            session_cookie = next((c for c in cookies if 'SESSION' in c.get('name', '')), None)
-            if session_cookie:
-                return f"{session_cookie['name']}={session_cookie['value']}"
+            if not cookies:
+                return ''
             
-            # 如果找不到SESSION cookie，则合并所有cookie
-            if cookies:
-                cookie_str = '; '.join([f"{c['name']}={c['value']}" for c in cookies])
-                return cookie_str
+            # 打印所有cookie便于调试
+            for cookie in cookies:
+                logger.info(f"Cookie: {cookie['name']}={cookie['value']}")
             
-            return ''
+            # 组合所有cookie（这很重要，因为认证可能需要多个cookie）
+            cookie_str = '; '.join([f"{c['name']}={c['value']}" for c in cookies])
+            logger.info(f"Combined cookies: {cookie_str}")
+            
+            return cookie_str
         except Exception as e:
             logger.error(f"获取cookie时出错: {str(e)}")
             logger.error(traceback.format_exc())
