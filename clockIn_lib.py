@@ -17,7 +17,7 @@ from selenium.webdriver.support.wait import WebDriverWait
 
 class clockIn():
     def __init__(self):
-
+        # 从环境变量中获取信息，不要在代码中硬编码敏感信息
         self.xuhao = str(os.environ['XUHAO'])
         self.mima = str(os.environ['MIMA'])
         self.SEATNO = str(os.environ['SEATNO'])
@@ -53,8 +53,6 @@ class clockIn():
             ["ignore-certificate-errors", "enable-automation"])
         options.keep_alive = True
 
-
-
         self.driver = selenium.webdriver.Chrome(options=options)
 
         self.wdwait = WebDriverWait(self.driver, 30)
@@ -79,18 +77,6 @@ class clockIn():
                 self.step1()
                 self.step2()
                 self.step3()
-
-                # if self.page == 0:
-                #     self.step0()
-                #
-                # if self.page in [0, 1]:
-                #     self.step1()
-                #
-                # if self.page in [0, 1, 2]:
-                #     self.step2()
-                #
-                # if self.page in [0, 1, 2, 3]:
-                #     self.step3()
 
             except Exception:
                 logger.error(traceback.format_exc())
@@ -126,7 +112,6 @@ class clockIn():
         logger.info('标题1: ' + self.driver.title)
 
         # 计算时间
-
         start = datetime.datetime.now()
 
         # 获取当前的操作系统
@@ -139,20 +124,14 @@ class clockIn():
             logger.info("当前操作系统为非Linux")
             self.titlewait.until(EC.title_contains("统一身份认证"))
 
-
-        # time.sleep(10)
-
         end = datetime.datetime.now()
         logger.info('等待时间: ' + str((end - start).seconds))
-
-
 
         logger.info('标题2: ' + self.driver.title)
 
     def step1(self):
         """登录融合门户
         """
-
         self.wdwait.until(
             EC.visibility_of_element_located(
                 (By.XPATH, "//div[@class='robot-mag-win small-big-small']")))
@@ -226,16 +205,100 @@ class clockIn():
 
         logger.info('获取到有效cookie: ' + cookie)
 
+        # 尝试从页面获取用户账号信息
+        user_account = None
+        try:
+            # 先尝试从HTML中提取用户信息
+            logger.info("尝试从页面提取用户信息")
+            page_source = self.driver.page_source
+            # 打印部分页面源码用于调试
+            logger.info(f"页面源码片段: {page_source[:500]}...")
+            
+            # 尝试执行JavaScript获取用户信息
+            script = """
+                try {
+                    // 尝试从localStorage或全局变量中获取
+                    if (window.localStorage && localStorage.getItem('userInfo')) {
+                        return localStorage.getItem('userInfo');
+                    }
+                    // 尝试获取任何可能包含账号的元素
+                    return document.body.innerHTML;
+                } catch (e) {
+                    return "Error: " + e.toString();
+                }
+            """
+            js_result = self.driver.execute_script(script)
+            logger.info(f"JavaScript执行结果: {js_result[:200]}...")
+            
+            # 尝试从localStorage等找到用户账号
+            if js_result and isinstance(js_result, str):
+                # 尝试解析JSON
+                try:
+                    if js_result.strip().startswith('{'):
+                        user_data = json.loads(js_result)
+                        if user_data and 'appAccNo' in user_data:
+                            user_account = user_data['appAccNo']
+                            logger.info(f"从JS中获取到用户账号: {user_account}")
+                except Exception as e:
+                    logger.error(f"解析用户信息失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"尝试从页面提取用户信息失败: {str(e)}")
+
         # 计算明天的日期，yyyy-MM-dd
         tomorrow = datetime.date.today() + datetime.timedelta(days=1)
         tomorrow = tomorrow.strftime('%Y-%m-%d')
 
+        # 如果未能获取用户账号，尝试几种常见方式
+        if not user_account:
+            # 方法1: 尝试使用学号作为账号
+            user_account = int(self.xuhao) if self.xuhao.isdigit() else None
+            logger.info(f"使用学号作为账号: {user_account}")
+            
+            # 方法2: 尝试直接使用API获取，多次重试
+            if not user_account:
+                for i in range(3):  # 最多重试3次
+                    try:
+                        user_info_url = "http://libbooking.gzhu.edu.cn/ic-web/account/getMembers"
+                        headers = {
+                            'Cookie': cookie,
+                            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.41',
+                        }
+                        
+                        user_response = requests.get(user_info_url, headers=headers)
+                        user_data = json.loads(user_response.text)
+                        logger.info(f"第{i+1}次尝试获取用户信息: {user_data}")
+                        
+                        if user_data.get('code') == 0 and user_data.get('data'):
+                            user_account = user_data['data'][0]['appAccNo']
+                            logger.info(f"获取到用户账号: {user_account}")
+                            break
+                        else:
+                            logger.error(f"获取用户信息失败: {user_data}")
+                            time.sleep(2)  # 等待2秒后重试
+                    except Exception as e:
+                        logger.error(f"获取用户信息出错: {str(e)}")
+                        time.sleep(2)
+
+        # 如果仍然获取不到用户账号，尝试使用默认的test账号
+        if not user_account:
+            # 方法3: 使用默认值作为最后的选择
+            user_account = 101598216  # 默认值
+            logger.info(f"无法获取用户账号，使用默认值: {user_account}")
+
         # 将下面的值转换成json格式
-        reserve1 = json.loads(self.reserve_lib_seat(cookie, tomorrow, '9:00:00', '12:00:00'))
-        reserve2 = json.loads(self.reserve_lib_seat(cookie, tomorrow, '14:00:00', '18:00:00'))
+        reserve1 = json.loads(self.reserve_lib_seat(cookie, tomorrow, '9:00:00', '12:00:00', user_account))
+        reserve2 = json.loads(self.reserve_lib_seat(cookie, tomorrow, '14:00:00', '18:00:00', user_account))
 
         logger.info(reserve1)
         logger.info(reserve2)
+
+        # 如果第一次请求失败，可能是账号问题，尝试使用学号作为账号重试
+        if reserve1.get('code') != 0 and user_account != int(self.xuhao) and self.xuhao.isdigit():
+            logger.info(f"尝试使用学号作为账号重新预约: {self.xuhao}")
+            user_account = int(self.xuhao)
+            reserve1 = json.loads(self.reserve_lib_seat(cookie, tomorrow, '9:00:00', '12:00:00', user_account))
+            reserve2 = json.loads(self.reserve_lib_seat(cookie, tomorrow, '14:00:00', '18:00:00', user_account))
+            logger.info(f"使用学号重试结果: {reserve1}")
 
         message = f'''{tomorrow} 座位101-{self.SEATNO}，上午预定：{'预约成功' if reserve1.get('code') == 0 else '预约失败，' + reserve1.get('message', '未知原因')}
             {tomorrow} 座位101-{self.SEATNO}，下午预定：{'预约成功' if reserve2.get('code') == 0 else '预约失败，' + reserve2.get('message', '未知原因')}
@@ -251,31 +314,36 @@ class clockIn():
         self.driver.quit()
         exit(0)
 
-    def reserve_lib_seat(self, cookie, tomorrow, startTime, endTime):
+    def reserve_lib_seat(self, cookie, tomorrow, startTime, endTime, user_account=None):
         """预约图书馆座位
         """
-        # 首先获取用户账号信息
-        user_info_url = "http://libbooking.gzhu.edu.cn/ic-web/account/getMembers"
-        headers = {
-            'Cookie': cookie,
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.41',
-        }
-        
-        try:
-            user_response = requests.get(user_info_url, headers=headers)
-            user_data = json.loads(user_response.text)
-            logger.info(f"用户信息: {user_data}")
-            
-            if user_data.get('code') == 0 and user_data.get('data'):
-                user_account = user_data['data'][0]['appAccNo']
-                logger.info(f"获取到用户账号: {user_account}")
-            else:
-                logger.error(f"获取用户信息失败: {user_data}")
-                user_account = 101598216  # 使用默认值，但很可能不正确
-        except Exception as e:
-            logger.error(f"获取用户信息出错: {str(e)}")
-            user_account = 101598216  # 默认值
-        
+        # 如果没有提供用户账号，尝试获取
+        if user_account is None:
+            try:
+                # 尝试最后一次获取
+                user_info_url = "http://libbooking.gzhu.edu.cn/ic-web/account/getMembers"
+                headers = {
+                    'Cookie': cookie,
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.41',
+                }
+                
+                user_response = requests.get(user_info_url, headers=headers)
+                user_data = json.loads(user_response.text)
+                logger.info(f"用户信息: {user_data}")
+                
+                if user_data.get('code') == 0 and user_data.get('data'):
+                    user_account = user_data['data'][0]['appAccNo']
+                    logger.info(f"获取到用户账号: {user_account}")
+                else:
+                    logger.error(f"获取用户信息失败: {user_data}")
+                    # 尝试使用学号作为账号
+                    user_account = int(self.xuhao) if self.xuhao.isdigit() else 101598216
+                    logger.info(f"使用备选账号: {user_account}")
+            except Exception as e:
+                logger.error(f"获取用户信息出错: {str(e)}")
+                # 使用默认值
+                user_account = 101598216
+
         # 然后进行预约
         url = "http://libbooking.gzhu.edu.cn/ic-web/reserve"
         
@@ -295,7 +363,13 @@ class clockIn():
             "memo": ""
         })
         
-        headers['Content-Type'] = 'application/json'
+        headers = {
+            'Cookie': cookie,
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36 Edg/110.0.1587.41',
+            'Content-Type': 'application/json'
+        }
+        
+        logger.info(f"发送预约请求，账号: {user_account}, 参数: {payload}")
         response = requests.request("POST", url, headers=headers, data=payload)
         
         return response.text
